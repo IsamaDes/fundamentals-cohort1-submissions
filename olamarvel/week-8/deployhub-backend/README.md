@@ -1,198 +1,297 @@
-# PulseTrack: Health Monitoring Application
 
-PulseTrack is a comprehensive health monitoring application designed to integrate user fitness data, meal tracking, and medical appointments into a single, cohesive ecosystem. This project was developed as part of the Software Engineering Week 5 Challenge, focusing on robust database modeling, backend API development, and frontend integration.
 
-This repository contains the **[CHOOSE ONE: backend/frontend]** part of the project.
+# DeployHub — PulseTrack: Health Monitoring Backend
 
-## Live Demo
+Short version: this repo is DeployHub, a backend that now includes the PulseTrack health monitoring features plus extra observability and CI/CD goodness. Health and metrics endpoints are implemented, Prometheus is wired up, tests and CI are configured, and Docker-based deployment is supported.
 
-The live version of the frontend application is deployed on Vercel and can be viewed here:
+---
 
-**[https://pluse-track-frontend.vercel.app/](https://pluse-track-frontend.vercel.app/)**
+## Table of contents
 
-*Note: The backend is hosted on a separate service. There might be a brief initial loading time for the first API request.*
+* [Project Overview](#project-overview)
+* [New features in this branch](#new-features-in-this-branch)
+* [Health check - implementation details](#health-check---implementation-details)
+* [Metrics - Prometheus](#metrics---prometheus)
+* [Technology stack](#technology-stack)
+* [Database schema design](#database-schema-design)
+* [API documentation](#api-documentation)
+* [Testing strategy](#testing-strategy)
+* [Quick dev commands](#quick-dev-commands)
+* [Setup and installation](#setup-and-installation)
+* [CI/CD and deployment](#cicd-and-deployment)
+* [Usage](#usage)
 
-## Table of Contents
+---
 
-- [Project Overview](#project-overview)
-- [Features Implemented](#features-implemented)
-- [Technology Stack](#technology-stack)
-- [Database Schema Design](#database-schema-design)
-- [API Documentation](#api-documentation)
-- [Testing Strategy](#testing-strategy)
-- [Setup and Installation](#setup-and-installation)
-- [Usage](#usage)
+## Project overview
 
-## Project Overview
+DeployHub is the backend service in this project. It also serves the PulseTrack project build previously responsibilities: user auth, activities, doctors, appointments, and health monitoring. This branch focuses on observability, reliability, and developer workflows while keeping the PulseTrack features intact.
 
-The challenge was to design and implement a full-stack application with a focus on a robust database schema and the relationships between complex entities. The application allows users to register, log in, and manage their health-related data, including fitness activities and medical appointments with various doctors.
+Backend (this service): [https://deployhub-iudq.onrender.com](https://deployhub-iudq.onrender.com)
 
-## Features Implemented
+---
 
-- **User Authentication**: Secure user registration and login using JWT (JSON Web Tokens) with access and refresh tokens.
-- **Automatic Token Refresh**: Implemented an Axios interceptor on the frontend to automatically refresh expired access tokens for a seamless user experience.
-- **Protected Routes**: Backend API routes are protected, requiring valid authentication to access user-specific data. Frontend routes that require authentication are also protected, redirecting unauthenticated users.
-- **Activity Management**: Authenticated users can create, view a list of, and see detailed information for their fitness activities.
-- **Doctor Management**: Authenticated users can view a list of doctors, add new doctors to the system, and view a detailed profile for each doctor, including a list of patients they have interacted with.
-- **Appointment Scheduling**: Users can schedule, view a list of, and see detailed information for their medical appointments, selecting from the available doctors.
-- **Responsive UI**: A clean and responsive user interface built with Next.js and styled with Tailwind CSS.
-- **"Coming Soon" Placeholders**: Sections for future features (like Meal tracking) are gracefully handled with a "Coming Soon" page.
+## New features in this branch
 
-## Technology Stack
+This backend version includes the observability and logging features required by the task, plus the existing PulseTrack API functionality.
+
+* Health check endpoint: `GET /health`
+* Prometheus metrics endpoint: `GET /metrics` (using `prom-client`)
+* Default Prometheus metrics collected (process, heap, event loop lag)
+* Custom metrics for API latency and request counters
+* CI pipeline that runs tests and builds Docker images
+* Dockerfile for containerized deployment
+
+---
+
+## Health check - implementation details
+
+**Route**
+
+```
+GET /health-check
+```
+
+**Response example**
+
+```json
+{
+  "status": "ok",
+  "uptime": 12345,
+  "timestamp": "2025-11-14T10:00:00.000Z",
+  "version": "1.0.0",
+}
+```
+
+
+---
+
+## Metrics - Prometheus
+
+This backend exposes Prometheus metrics on `/metrics` using the `prom-client` package.
+
+Setup:
+
+* Install the package:
+
+```bash
+npm install prom-client
+```
+
+* What we collect:
+
+  * Default process metrics: memory, CPU, event loop lag, heap usage
+  * Custom counters: total requests, error counts
+  * Custom histograms: API latency for main routes
+
+**Metrics endpoint**
+
+```
+GET /metrics
+```
+
+The `/metrics` endpoint returns the text exposition format that Prometheus scrapes. Example usage in Prometheus scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: 'deployhub'
+    static_configs:
+      - targets: ['deployhub-iudq.onrender.com:80']
+```
+
+---
+
+## Technology stack
+
+Backend
+
+* Node.js, Express
+* MongoDB with Mongoose
+* Authentication: JSON Web Tokens (access + refresh)
+* Observability: prom-client for Prometheus
+* Validation: express-validator
+* Env management: dotenv
+
+Frontend (separate repo)
+
+* React, vite
+* TypeScript
+* Tailwind CSS
+* Axios for API calls
+* Swiper.js for carousels
+
+---
+
+## Database schema design
+
+Core models and relationships:
+
+* User
+
+  * `activities: [ObjectId]` ref: 'Activity'
+  * `appointments: [ObjectId]` ref: 'Appointment'
+* Activity
+
+  * `user: ObjectId` ref: 'User'
+* Doctor
+
+  * Standalone entity, associated to appointments
+* Appointment
+
+  * `user: ObjectId` ref: 'User'
+  * `doctor: ObjectId` ref: 'Doctor'
+
+Appointments link users and doctors, enabling queries like: which doctors has a user interacted with, and which users are associated with a doctor.
+
+---
+
+## API documentation
+
+A Postman collection with the API requests is included in the backend repo as `postman_collection.json`. There is also live Postman documentation:
+
+* Postman doc: [https://documenter.getpostman.com/view/49353777/2sB3Wjz43p](https://documenter.getpostman.com/view/49353777/2sB3Wjz43p)
+
+How to use:
+
+1. Import `postman_collection.json` into Postman, or open the live doc link.
+2. Create a Postman environment and set `baseUrl` to your backend URL, e.g. `http://localhost:5000` or `https://deployhub-iudq.onrender.com`.
+3. Run the "Login User" request to capture JWTs and use protected routes.
+
+Key endpoints (not exhaustive)
+
+* `POST /auth/register` - register user
+* `POST /auth/login` - login
+* `POST /auth/refresh` - refresh access token
+* `GET /activities` - list activities (protected)
+* `POST /activities` - create activity (protected)
+* `GET /doctors` - list doctors
+* `POST /doctors` - add doctor (protected)
+* `GET /appointments` - list appointments (protected)
+* `POST /appointments` - schedule appointment (protected)
+* `GET /health-check` - health check
+* `GET /metrics` - Prometheus metrics
+
+---
+
+## Testing strategy
+
+We follow a layered test strategy described below. CI runs tests on every push and PR.
+
+1. Unit tests
+
+   * Fast, isolated tests of utilities and controllers
+   * Jest, with dependencies mocked where appropriate
+2. Integration tests
+
+   * Tests that exercise router -> controller -> model flows
+   * Jest + Supertest
+   * Use a dedicated test DB: `mongodb://127.0.0.1:27017/pulse_test`
+   * Reset DB between tests
+3. E2E workflow tests
+
+   * Simulate a user flow: register, login, create appointment, fetch appointment
+4. Coverage
+
+   * `npm run test:coverage` produces a `coverage/` folder and HTML report
+   * Target: 80% coverage as a minimum goal, but focus on confidence and critical path coverage
+
+CI details:
+
+* GitHub Actions pipeline is present in `.github/workflows/ci-cd.yml`
+* Steps: setup Node, start MongoDB service, install deps, run tests
+
+---
+
+## Quick dev commands
+
+* `npm run dev` - start dev server (nodemon or equivalent)
+* `npm run test` - run tests
+* `npm run test:coverage` - run tests and generate coverage
+* `npm run lint` - run linter
+* `npm run start` - start production server
+
+---
+
+## Setup and installation
 
 ### Backend
 
-- **Framework**: Node.js, Express.js
-- **Database**: MongoDB
-- **ODM**: Mongoose
-- **Authentication**: JSON Web Tokens (JWT)
-- **Middleware**: CORS, Express-validator for input validation
-- **Environment Management**: Dotenv
+Prerequisites
+
+* Node.js v18 or later recommended
+* MongoDB (local or Atlas)
+
+Steps
+
+```bash
+cd deployhub-backend
+npm install
+```
+
+Create `.env` with at least:
+
+```env
+PORT=5000
+MONGO_URI=your_mongodb_connection_string
+ACCESS_TOKEN_SECRET=your_super_secret_access_token_key
+REFRESH_TOKEN_SECRET=your_super_secret_refresh_token_key
+ACCESS_TOKEN_EXPIRES_IN=15m
+REFRESH_TOKEN_EXPIRES_IN=7d
+NODE_ENV=development
+```
+
+Start dev server
+
+```bash
+npm run dev
+```
+
+API should be available at `http://localhost:5000` by default.
 
 ### Frontend
 
-- **Framework**: React, Next.js (with App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **API Communication**: Axios
-- **UI Components**: Swiper.js for carousels
+Frontend is a separate repo. To run locally:
 
-## Database Schema Design
+```bash
+git clone
+cd deployhub-frontend
+npm install
+```
 
-The database is designed around a user-centric model with several interconnected entities. The relationships are established using Mongoose's `ref` property to link documents across collections.
+Create `.env.local`:
 
-- **User**: The central model. Each user has a one-to-many relationship with Activities, Appointments, and Meals.
-  - `activities: [ObjectId]` -> ref: 'Activity'
-  - `appointments: [ObjectId]` -> ref: 'Appointment'
+```env
+VITE_API_BASE_URL=http://localhost:5000
+```
 
-- **Activity**: Belongs to a single user.
-  - `user: ObjectId` -> ref: 'User'
+Start frontend
 
-- **Doctor**: A standalone entity that can be associated with multiple appointments.
+```bash
+npm run dev
+```
 
-- **Appointment**: The intermediary model that links a `User` and a `Doctor`, forming a many-to-many relationship between them.
-  - `user: ObjectId` -> ref: 'User'
-  - `doctor: ObjectId` -> ref: 'Doctor'
-
-This design allows for efficient querying of a user's health data and easily establishes which users have interacted with which doctors through their shared appointments.
-
-## API Documentation
-
-The API is thoroughly documented using Postman. The collection includes detailed descriptions for each endpoint, including validation rules, controller logic, expected request bodies, and example success/error responses.
-
-The Postman collection is available in the backend repository as `postman_collection.json`. You can also access the live Postman documentation using this [link](https://documenter.getpostman.com/view/49353777/2sB3Wjz43p).
-
-To use it:
-1. Import `postman_collection.json` into your Postman client or use the link.
-2. Configure a Postman environment and set the `baseUrl` variable to your backend's URL (e.g., `http://localhost:5000`).
-3. Run the "Login User" request to automatically capture the JWT and set it as the `authToken` environment variable for use in protected routes.
+Frontend should be available at `http://localhost:3000`.
 
 ---
 
-## Testing Strategy
+## CI/CD and deployment
 
-This project employs a multi-layered testing strategy to ensure both high code coverage and, more importantly, high confidence in the application's reliability. The goal is to create a robust and maintainable test suite that can catch regressions before they reach production.
+This project uses GitHub Actions and Docker.
 
-### 1. The Testing Pyramid
+* CI workflow runs on push and PR, runs test suite, and builds artifacts.
+* Dockerfile is included for container builds.
+* Actions push Docker images to your registry as part of deploy steps if configured.
+* The project is already deployed at: [https://deployhub-iudq.onrender.com](https://deployhub-iudq.onrender.com)
 
-Our strategy is modeled after the testing pyramid, with a broad base of fast, isolated unit tests and progressively fewer, more integrated tests as we move up the pyramid.
-
-- **Unit Tests (`__tests__/units`):**
-  - **Purpose:** To test the smallest, most isolated pieces of logic.
-  - **Tools:** `Jest`.
-  - **Examples:** Testing utility functions like `hashPassword` and `signAccess`. Dependencies like `bcrypt` and `jsonwebtoken` are mocked to ensure these tests are fast and deterministic.
-
-- **Integration Tests (`__tests__/integrations`):**
-  - **Purpose:** To test how different parts of the application work together.
-  - **Tools:** `Jest`, `Supertest`, and a dedicated test database (`mongodb://127.0.0.1:27017/pulse_test`).
-  - **Examples:** Testing API endpoints to ensure that a request flows correctly through the router, controller, and model, and that the correct response is returned. The database is reset before each test to ensure isolation.
-
-- **End-to-End (E2E) Workflow Tests (`__tests__/e2e`):**
-  - **Purpose:** To simulate a real user workflow by chaining multiple API calls together.
-  - **Tools:** `Jest`, `Supertest`.
-  - **Example:** A single test case that registers a user, logs them in, creates an appointment, and then fetches that appointment, verifying each step.
-
-### 2. Coverage and Confidence
-
-The project is configured to generate coverage reports using `npm run test:coverage`. After running the tests, a `coverage/` directory is created at the project root. You can view the detailed coverage report by opening `coverage/lcov-report/index.html` in your browser. Our goal is to achieve a minimum of **80% test coverage**. However, the primary focus is on **confidence**. We prioritize writing meaningful tests that cover critical paths, business logic, and error conditions over simply chasing a high coverage number.
-
-### 3. Continuous Integration (CI)
-
-We use **GitHub Actions** to automate our testing process. The workflow defined in `.github/workflows/ci.yml` is triggered on every push and pull request to the `main` branch. The CI pipeline:
-1. Sets up a Node.js environment.
-2. Starts a MongoDB service for the integration tests.
-3. Installs all project dependencies.
-4. Runs the entire test suite (`npm test`).
-
-This ensures that no new code is merged without passing all tests, providing a crucial safety net for the project.
+If you want to deploy to another environment, update the GitHub Actions workflow and set repository secrets for your container registry credentials and environment variables.
 
 ---
-
-## Setup and Installation
-
-Follow these instructions to get the project running locally.
-
-### Backend (`pulsetrack-backend`)
-
-**Prerequisites:**
-- Node.js (v18 or later recommended)
-- MongoDB (local instance or a cloud service like MongoDB Atlas)
-
-**Instructions:**
-1.  Clone the repository:
-    ```bash
-    git clone <your-backend-repo-url>
-    cd pulsetrack-backend
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Create a `.env` file in the root of the backend project and add the following environment variables:
-    ```env
-    PORT=5000
-    MONGO_URI=your_mongodb_connection_string
-    ACCESS_TOKEN_SECRET=your_super_secret_access_token_key
-    REFRESH_TOKEN_SECRET=your_super_secret_refresh_token_key
-    ACCESS_TOKEN_EXPIRES_IN=15m
-    REFRESH_TOKEN_EXPIRES_IN=7d
-    ```
-4.  Start the development server:
-    ```bash
-    npm run dev
-    ```
-    The backend API should now be running on `http://localhost:5000`.
-
-### Frontend (`pulsetrack-frontend`)
-
-**Prerequisites:**
-- Node.js (v18 or later recommended)
-
-**Instructions:**
-1.  Clone the repository:
-    ```bash
-    git clone <your-frontend-repo-url>
-    cd pulsetrack-frontend
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Create a `.env.local` file in the root of the frontend project. This file will store the URL of your running backend API.
-    ```env
-    NEXT_PUBLIC_API_BASE_URL=http://localhost:5000
-    ```
-4.  Start the development server:
-    ```bash
-    npm run dev
-    ```
-    The application should now be accessible at `http://localhost:3000`.
 
 ## Usage
 
-Once both the backend and frontend servers are running, you can:
-1.  Navigate to `http://localhost:3000`.
-2.  Register a new user account.
-3.  Log in with your new credentials.
-4.  Navigate through the "Activities", "Doctors", and "Appointments" sections to create and view data.
-5.  Test the protected routes by logging out and attempting to access a protected page.
+1. Ensure backend and (optionally) frontend are running.
+2. Register a user via API or frontend.
+3. Login and exercise Activities, Doctors, and Appointment endpoints.
+4. Check `/health` for quick liveness/readiness.
+5. Point Prometheus to `/metrics` to start scraping metrics.
+6. Use Postman collection for testing and exploring endpoints.
